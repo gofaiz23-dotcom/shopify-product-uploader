@@ -24,7 +24,8 @@ class ShopifyAPIClient:
             api_key (str): Shopify API key
             api_password (str): Shopify API password
         """
-        self.shop_url = shop_url.rstrip('/')
+        # Clean shop URL - remove https:// if present
+        self.shop_url = shop_url.replace('https://', '').replace('http://', '').rstrip('/')
         self.api_key = api_key
         self.api_password = api_password
         self.graphql_url = f"https://{self.shop_url}/admin/api/2025-10/graphql.json"

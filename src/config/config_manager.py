@@ -36,8 +36,14 @@ class ConfigManager:
             'shopify_api_key': os.getenv('SHOPIFY_API_KEY', ''),
             'shopify_api_password': os.getenv('SHOPIFY_API_PASSWORD', ''),
             
-            # OpenAI Configuration
-            'openai_api_key': os.getenv('OPENAI_API_KEY', ''),
+            # Selenium Configuration
+            'selenium_headless': os.getenv('SELENIUM_HEADLESS', 'true').lower() == 'true',
+            'selenium_wait_timeout': int(os.getenv('SELENIUM_WAIT_TIMEOUT', '10')),
+            
+            # AI Fiesta Configuration
+            'ai_fiesta_url': os.getenv('AI_FIESTA_URL', 'https://aifiesta.com/'),
+            'ai_fiesta_wait_time': int(os.getenv('AI_FIESTA_WAIT_TIME', '15')),
+            'ai_fiesta_retry_attempts': int(os.getenv('AI_FIESTA_RETRY_ATTEMPTS', '3')),
             
             # Processing Configuration
             'batch_size': int(os.getenv('BATCH_SIZE', '100')),
@@ -53,10 +59,6 @@ class ConfigManager:
             'report_dir': os.getenv('REPORT_DIR', 'reports'),
             'backup_dir': os.getenv('BACKUP_DIR', 'backups'),
             
-            # AI Configuration
-            'ai_model': os.getenv('AI_MODEL', 'gpt-3.5-turbo'),
-            'ai_max_tokens': int(os.getenv('AI_MAX_TOKENS', '800')),
-            'ai_temperature': float(os.getenv('AI_TEMPERATURE', '0.7')),
             
             # Shopify Configuration
             'shopify_api_version': os.getenv('SHOPIFY_API_VERSION', '2025-10'),
@@ -76,7 +78,15 @@ class ConfigManager:
             'handling_charges': float(os.getenv('HANDLING_CHARGES', '50.0')),
             'logistics_charges': float(os.getenv('LOGISTICS_CHARGES', '300.0')),
             'marketplace_commission_percent': float(os.getenv('MARKETPLACE_COMMISSION_PERCENT', '15.0')),
-            'profit_margin_percent': float(os.getenv('PROFIT_MARGIN_PERCENT', '20.0'))
+            'profit_margin_percent': float(os.getenv('PROFIT_MARGIN_PERCENT', '20.0')),
+            
+            # Additional pricing configuration
+            'use_dynamic_logistics': os.getenv('USE_DYNAMIC_LOGISTICS', 'false').lower() == 'true',
+            'base_logistics_rate': float(os.getenv('BASE_LOGISTICS_RATE', '10.0')),
+            'min_logistics_charge': float(os.getenv('MIN_LOGISTICS_CHARGE', '50.0')),
+            'max_logistics_charge': float(os.getenv('MAX_LOGISTICS_CHARGE', '500.0')),
+            'default_distance_km': float(os.getenv('DEFAULT_DISTANCE_KM', '100.0')),
+            'default_weight_kg': float(os.getenv('DEFAULT_WEIGHT_KG', '1.0'))
         }
         
         # Load from config file if provided
@@ -117,8 +127,7 @@ class ConfigManager:
         required_config = [
             'shopify_shop_url',
             'shopify_api_key', 
-            'shopify_api_password',
-            'openai_api_key'
+            'shopify_api_password'
         ]
         
         missing_config = [key for key in required_config if not self.config[key]]
@@ -131,8 +140,7 @@ class ConfigManager:
         # Validate numeric values
         numeric_configs = [
             'batch_size', 'max_workers', 'max_retries', 'delay_between_batches',
-            'ai_max_tokens', 'ai_temperature', 'shopify_rate_limit',
-            'retry_delay', 'max_retry_delay', 'retry_backoff_factor'
+            'shopify_rate_limit', 'retry_delay', 'max_retry_delay', 'retry_backoff_factor'
         ]
         
         for config_key in numeric_configs:
@@ -144,8 +152,6 @@ class ConfigManager:
                     'max_workers': 1,
                     'max_retries': 3,
                     'delay_between_batches': 1.0,
-                    'ai_max_tokens': 800,
-                    'ai_temperature': 0.7,
                     'shopify_rate_limit': 1000,
                     'retry_delay': 2.0,
                     'max_retry_delay': 60.0,
@@ -223,18 +229,29 @@ class ConfigManager:
             'rate_limit': self.config['shopify_rate_limit']
         }
     
-    def get_ai_config(self) -> Dict[str, Any]:
+    def get_selenium_config(self) -> Dict[str, Any]:
         """
-        Get AI-specific configuration
+        Get Selenium-specific configuration
         
         Returns:
-            Dict[str, Any]: AI configuration
+            Dict[str, Any]: Selenium configuration
         """
         return {
-            'api_key': self.config['openai_api_key'],
-            'model': self.config['ai_model'],
-            'max_tokens': self.config['ai_max_tokens'],
-            'temperature': self.config['ai_temperature']
+            'headless': self.config['selenium_headless'],
+            'wait_timeout': self.config['selenium_wait_timeout']
+        }
+    
+    def get_ai_fiesta_config(self) -> Dict[str, Any]:
+        """
+        Get AI Fiesta-specific configuration
+        
+        Returns:
+            Dict[str, Any]: AI Fiesta configuration
+        """
+        return {
+            'url': self.config['ai_fiesta_url'],
+            'wait_time': self.config['ai_fiesta_wait_time'],
+            'retry_attempts': self.config['ai_fiesta_retry_attempts']
         }
     
     def get_processing_config(self) -> Dict[str, Any]:

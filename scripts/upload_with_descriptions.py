@@ -1,6 +1,7 @@
+#!/usr/bin/env python3
 """
-Main execution script for Shopify Product Upload System
-Automates the process of uploading thousands of products to Shopify
+Shopify Upload with Pre-generated Descriptions
+Uploads products to Shopify using pre-generated descriptions from Excel sheet
 """
 
 import os
@@ -12,21 +13,23 @@ from typing import Dict, List, Optional
 import pandas as pd
 from datetime import datetime
 
-# Import our modules
-from src.core import ExcelReader, SeleniumDescriptionScraper, BatchProcessor, ProductProcessor, PricingCalculator
+# Add src to path (scripts directory is one level up from src)
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
+
+from src.core import ExcelReader, BatchProcessor, ProductProcessor, PricingCalculator
 from src.api import ShopifyAPIClient
 from src.reports import ExcelReportGenerator
 from src.config import ConfigManager
 from src.utils import setup_logging, get_upload_logger
 
-class ShopifyUploadSystem:
+class ShopifyUploadWithDescriptions:
     """
-    Main system class for automated Shopify product uploads
+    Shopify upload system that uses pre-generated descriptions
     """
     
     def __init__(self, config_file: Optional[str] = None):
         """
-        Initialize the upload system
+        Initialize upload system
         
         Args:
             config_file (Optional[str]): Path to configuration file
@@ -44,32 +47,22 @@ class ShopifyUploadSystem:
         self.upload_logger = get_upload_logger()
         
         # Initialize components
-        self.excel_reader = None
-        self.ai_generator = None
         self.shopify_client = None
         self.batch_processor = None
         self.product_processor = None
         self.report_generator = None
+        self.pricing_calculator = None
         
-        self.logger.info("Shopify Product Upload System initialized")
-    
+        self.logger.info("Shopify Upload with Descriptions System initialized")
     
     def initialize_components(self):
         """Initialize all system components"""
         try:
             # Get configuration
             shopify_config = self.config_manager.get_shopify_config()
-            selenium_config = self.config_manager.get_selenium_config()
             processing_config = self.config_manager.get_processing_config()
             report_config = self.config_manager.get_report_config()
             pricing_config = self.config_manager.get_pricing_config()
-            
-            # Initialize Selenium description scraper
-            self.logger.info("Initializing Selenium description scraper...")
-            self.description_scraper = SeleniumDescriptionScraper(
-                headless=selenium_config['headless'],
-                wait_timeout=selenium_config['wait_timeout']
-            )
             
             # Initialize pricing calculator
             self.logger.info("Initializing pricing calculator...")
@@ -96,11 +89,11 @@ class ShopifyUploadSystem:
                 delay_between_batches=processing_config['delay_between_batches']
             )
             
-            # Initialize product processor
+            # Initialize product processor (without description scraper)
             self.logger.info("Initializing product processor...")
             self.product_processor = ProductProcessor(
                 shopify_client=self.shopify_client,
-                description_scraper=self.description_scraper,
+                description_scraper=None,  # No description generation needed
                 upload_logger=self.upload_logger,
                 pricing_calculator=self.pricing_calculator
             )
@@ -117,41 +110,51 @@ class ShopifyUploadSystem:
     
     def process_excel_file(self, excel_file_path: str) -> Optional[pd.DataFrame]:
         """
-        Process Excel file and return merged product data
+        Process Excel file and return product data with descriptions
         
         Args:
             excel_file_path (str): Path to Excel file
             
         Returns:
-            Optional[pd.DataFrame]: Merged product data or None if failed
+            Optional[pd.DataFrame]: Product data with descriptions
         """
         try:
             self.logger.info(f"Processing Excel file: {excel_file_path}")
             
-            # Initialize Excel reader
-            self.excel_reader = ExcelReader(excel_file_path)
+            # Read Excel file
+            excel_reader = ExcelReader(excel_file_path)
+            products_data = excel_reader.get_merged_data()
             
-            # Read and merge data
-            merged_data = self.excel_reader.get_merged_data()
-            
-            if merged_data is not None:
-                self.logger.info(f"Successfully processed {len(merged_data)} products from Excel file")
-                return merged_data
-            else:
-                self.logger.error("Failed to process Excel file")
+            if products_data is None:
+                self.logger.error("Failed to read Excel file")
                 return None
-                
+            
+            # Check if descriptions exist
+            if 'generated_description' not in products_data.columns:
+                self.logger.error("No 'generated_description' column found in Excel file")
+                self.logger.error("Please run generate_descriptions.py first to generate descriptions")
+                return None
+            
+            # Filter products with descriptions
+            products_with_descriptions = products_data[products_data['generated_description'].notna()]
+            products_without_descriptions = products_data[products_data['generated_description'].isna()]
+            
+            self.logger.info(f"Found {len(products_with_descriptions)} products with descriptions")
+            if len(products_without_descriptions) > 0:
+                self.logger.warning(f"Found {len(products_without_descriptions)} products without descriptions")
+            
+            return products_with_descriptions
+            
         except Exception as e:
             self.logger.error(f"Error processing Excel file: {str(e)}")
             return None
     
-    def upload_products(self, products_data: pd.DataFrame, 
-                      dry_run: bool = False) -> Dict[str, any]:
+    def upload_products(self, products_data: pd.DataFrame, dry_run: bool = False) -> Dict[str, any]:
         """
-        Upload products to Shopify
+        Upload products to Shopify using pre-generated descriptions
         
         Args:
-            products_data (pd.DataFrame): Product data DataFrame
+            products_data (pd.DataFrame): Product data with descriptions
             dry_run (bool): If True, only validate data without uploading
             
         Returns:
@@ -166,7 +169,7 @@ class ShopifyUploadSystem:
                 return self._validate_products(products_list)
             
             # Process products in batches
-            self.logger.info(f"Starting upload of {len(products_list)} products")
+            self.logger.info(f"Starting upload of {len(products_list)} products with pre-generated descriptions")
             
             results = self.batch_processor.process_products(
                 products_data=products_list,
@@ -230,7 +233,7 @@ class ShopifyUploadSystem:
             sku = product_data.get('sku', 'unknown')
             
             # Check required fields
-            required_fields = ['sku', 'title', 'price']
+            required_fields = ['sku', 'title', 'price', 'generated_description']
             missing_fields = [field for field in required_fields if not product_data.get(field)]
             
             if missing_fields:
@@ -254,11 +257,11 @@ class ShopifyUploadSystem:
         Run the complete upload process
         
         Args:
-            excel_file_path (str): Path to Excel file
+            excel_file_path (str): Path to Excel file with descriptions
             dry_run (bool): If True, only validate without uploading
         """
         try:
-            self.logger.info("Starting Shopify Product Upload System")
+            self.logger.info("Starting Shopify Upload with Pre-generated Descriptions")
             self.logger.info(f"Excel file: {excel_file_path}")
             self.logger.info(f"Dry run: {dry_run}")
             
@@ -291,7 +294,7 @@ class ShopifyUploadSystem:
             results (Dict[str, any]): Processing results
         """
         print("\n" + "="*50)
-        print("PROCESSING SUMMARY")
+        print("UPLOAD SUMMARY")
         print("="*50)
         print(f"Total Products: {results['total_processed']}")
         print(f"Successful: {results['successful']}")
@@ -310,8 +313,8 @@ class ShopifyUploadSystem:
 
 def main():
     """Main entry point"""
-    parser = argparse.ArgumentParser(description='Shopify Product Upload System')
-    parser.add_argument('excel_file', help='Path to Excel file with product data')
+    parser = argparse.ArgumentParser(description='Shopify Upload with Pre-generated Descriptions')
+    parser.add_argument('excel_file', help='Path to Excel file with generated descriptions')
     parser.add_argument('--dry-run', action='store_true', 
                        help='Validate data without uploading to Shopify')
     parser.add_argument('--config', help='Path to configuration file')
@@ -324,9 +327,8 @@ def main():
         sys.exit(1)
     
     # Create and run the system
-    system = ShopifyUploadSystem(config_file=args.config)
+    system = ShopifyUploadWithDescriptions(config_file=args.config)
     system.run(args.excel_file, dry_run=args.dry_run)
 
 if __name__ == "__main__":
     main()
-

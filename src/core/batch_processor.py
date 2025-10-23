@@ -304,18 +304,18 @@ class ProductProcessor:
     Specialized processor for Shopify product uploads
     """
     
-    def __init__(self, shopify_client, ai_generator, upload_logger, pricing_calculator=None):
+    def __init__(self, shopify_client, description_scraper, upload_logger, pricing_calculator=None):
         """
         Initialize product processor
         
         Args:
             shopify_client: Shopify API client
-            ai_generator: AI description generator
+            description_scraper: Selenium description scraper
             upload_logger: Upload logger
             pricing_calculator: Pricing calculator for final price calculation
         """
         self.shopify_client = shopify_client
-        self.ai_generator = ai_generator
+        self.description_scraper = description_scraper
         self.upload_logger = upload_logger
         self.pricing_calculator = pricing_calculator
         self.logger = logging.getLogger(__name__)
@@ -368,10 +368,23 @@ class ProductProcessor:
                     self.logger.warning(f"Error calculating final price for SKU {sku}: {str(e)}")
                     # Continue with original price if calculation fails
             
-            # Generate AI description
-            self.logger.info(f"Generating description for SKU: {sku}")
-            description = self.ai_generator.generate_description(product_data)
-            product_data['body_html'] = description
+            # Use pre-generated description or generate new one
+            if 'generated_description' in product_data and product_data['generated_description']:
+                # Use pre-generated description
+                self.logger.info(f"Using pre-generated description for SKU: {sku}")
+                product_data['body_html'] = product_data['generated_description']
+            elif self.description_scraper:
+                # Generate new description using Selenium scraper
+                self.logger.info(f"Generating description for SKU: {sku}")
+                description = self.description_scraper.generate_description(product_data)
+                product_data['body_html'] = description
+            else:
+                # Use fallback description
+                self.logger.warning(f"No description available for SKU: {sku}, using fallback")
+                from src.core.selenium_description_scraper import SeleniumDescriptionScraper
+                scraper = SeleniumDescriptionScraper(headless=True)
+                fallback_description = scraper._create_fallback_description(product_data)
+                product_data['body_html'] = fallback_description
             
             # Upload to Shopify
             self.logger.info(f"Uploading product SKU: {sku}")
@@ -466,18 +479,18 @@ def create_batch_processor(batch_size: int = 100, max_workers: int = 1) -> Batch
     """
     return BatchProcessor(batch_size=batch_size, max_workers=max_workers)
 
-def create_product_processor(shopify_client, ai_generator, upload_logger, pricing_calculator=None) -> ProductProcessor:
+def create_product_processor(shopify_client, description_scraper, upload_logger, pricing_calculator=None) -> ProductProcessor:
     """
     Create a product processor instance
     
     Args:
         shopify_client: Shopify API client
-        ai_generator: AI description generator
+        description_scraper: Selenium description scraper
         upload_logger: Upload logger
         pricing_calculator: Pricing calculator for final price calculation
         
     Returns:
         ProductProcessor: Product processor instance
     """
-    return ProductProcessor(shopify_client, ai_generator, upload_logger, pricing_calculator)
+    return ProductProcessor(shopify_client, description_scraper, upload_logger, pricing_calculator)
 
