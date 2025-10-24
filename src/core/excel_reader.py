@@ -80,10 +80,10 @@ class ExcelReader:
             Optional[pd.DataFrame]: Items DataFrame or None if not found/invalid
         """
         required_columns = ['sku', 'title', 'price', 'category', 'brand']
-        optional_columns = ['weight', 'weight_kg', 'distance', 'distance_km', 'shipping_distance']
+        optional_columns = ['weight', 'weight_kg']
         
         # Try different possible sheet names for items
-        possible_names = ['items', 'item', 'products', 'product', 'catalog']
+        possible_names = ['items', 'item', 'products', 'product', 'catalog', 'products_with_descriptions']
         
         for name in possible_names:
             if name in self.sheets_data:
