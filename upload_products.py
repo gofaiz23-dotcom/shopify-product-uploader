@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Simple Product Upload Script
-Uploads products from Excel file to Shopify
+Uploads products from CSV files to Shopify with all fields
 """
 
 import os
@@ -20,36 +20,57 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 from src.api.shopify_api_client import ShopifyAPIClient
 
-def upload_products_from_excel(excel_file_path):
-    """Upload products from Excel file to Shopify"""
+def load_product_data(items_file, stock_file, images_file):
+    """Load product data from CSV files"""
     
-    print("SHOPIFY PRODUCT UPLOAD")
+    # Load Items.csv
+    items_df = pd.read_csv(items_file)
+    
+    # Load Stock.csv
+    stock_df = pd.read_csv(stock_file)
+    
+    # Load Images.csv
+    images_df = pd.read_csv(images_file)
+    
+    # Merge all dataframes on SKU
+    products_df = items_df.merge(stock_df, on='SKU', how='left')
+    products_df = products_df.merge(images_df, on='SKU', how='left')
+    
+    # Fill missing values
+    products_df['Quantity'] = products_df['Quantity'].fillna(0).astype(int)
+    products_df['Image Links'] = products_df['Image Links'].fillna('')
+    
+    return products_df
+
+def upload_products_from_csv(items_file, stock_file, images_file, limit=None):
+    """Upload products from CSV files to Shopify"""
+    
+    print("SHOPIFY PRODUCT UPLOAD - COMPREHENSIVE")
     print("="*50)
-    print(f"Excel file: {excel_file_path}")
+    print(f"Items file: {items_file}")
+    print(f"Stock file: {stock_file}")
+    print(f"Images file: {images_file}")
     print("="*50)
     
-    # Check if file exists
-    if not os.path.exists(excel_file_path):
-        print(f"ERROR: File '{excel_file_path}' not found")
-        return False
+    # Check if files exist
+    for file in [items_file, stock_file, images_file]:
+        if not os.path.exists(file):
+            print(f"ERROR: File '{file}' not found")
+            return False
     
-    # Read the Excel file
-    print("Reading Excel file...")
+    # Load product data
+    print("Loading product data from CSV files...")
     try:
-        # Try to read the file with descriptions first
-        if 'descriptions' in excel_file_path:
-            products_data = pd.read_excel(excel_file_path, sheet_name='Products_with_Descriptions')
-        else:
-            products_data = pd.read_excel(excel_file_path)
+        products_df = load_product_data(items_file, stock_file, images_file)
         
-        if products_data is None or len(products_data) == 0:
-            print("ERROR: No data found in Excel file")
+        if products_df is None or len(products_df) == 0:
+            print("ERROR: No data found in CSV files")
             return False
         
-        print(f"SUCCESS: Found {len(products_data)} products")
+        print(f"SUCCESS: Found {len(products_df)} products")
         
     except Exception as e:
-        print(f"ERROR reading Excel file: {str(e)}")
+        print(f"ERROR reading CSV files: {str(e)}")
         return False
     
     # Shopify API configuration from environment variables
@@ -90,8 +111,11 @@ def upload_products_from_excel(excel_file_path):
         print(f"ERROR: Failed to connect to Shopify: {str(e)}")
         return False
     
-    # Upload products (limit to 3 for testing)
-    print(f"\nUploading products to Shopify...")
+    # Upload products (limit if specified)
+    if limit:
+        products_df = products_df.head(limit)
+    
+    print(f"\nUploading {len(products_df)} products to Shopify...")
     upload_results = {
         'total_processed': 0,
         'successful': 0,
@@ -99,33 +123,58 @@ def upload_products_from_excel(excel_file_path):
         'upload_details': []
     }
     
-    # Test with first 3 products only
-    test_products = products_data.head(3)
-    
-    for index, row in test_products.iterrows():
-        sku = row.get('sku', f'Product_{index}')
-        title = row.get('title', 'Unknown Product')
-        price = row.get('price', 0)
-        description = row.get('generated_description', row.get('description', ''))
+    for index, row in products_df.iterrows():
+        sku = row.get('SKU', f'Product_{index}')
+        title = row.get('Title', 'Unknown Product')
+        price = row.get('Price', 0)
+        category = row.get('Category', 'General')
+        brand = row.get('Brand', 'Unknown Brand')
+        features = row.get('Features', '')
+        material = row.get('Material', '')
+        weight = row.get('Weight', 0)
+        quantity = int(row.get('Quantity', 0))
+        image_links = row.get('Image Links', '')
         
-        print(f"\nProcessing {index + 1}/3: {sku}")
+        print(f"\nProcessing {index + 1}/{len(products_df)}: {sku}")
         print(f"  Title: {title}")
         print(f"  Price: ${price}")
+        print(f"  Category: {category}")
+        print(f"  Quantity: {quantity}")
+        print(f"  Weight: {weight} kg")
         
         try:
-            # Create product data for Shopify REST API
+            # Create comprehensive description
+            description = f"<h2>{title}</h2>"
+            
+            if features:
+                description += f"<h3>Features</h3><p>{features}</p>"
+            
+            if material:
+                description += f"<h3>Materials</h3><p>{material}</p>"
+            
+            # Build variant with weight
+            variant = {
+                "price": str(price),
+                "sku": sku,
+                "inventory_quantity": quantity,
+                "inventory_management": "shopify",
+                "inventory_policy": "deny"
+            }
+            
+            # Add weight if available
+            if weight and weight > 0:
+                variant["weight"] = float(weight)
+                variant["weight_unit"] = "kg"
+            
+            # Create product data for Shopify REST API with ALL fields
             product_data = {
                 "product": {
                     "title": title,
                     "body_html": description,
-                    "vendor": row.get('brand', 'Unknown Brand'),
-                    "product_type": row.get('category', 'General'),
-                    "tags": [row.get('category', 'General'), row.get('brand', 'Unknown')],
-                    "variants": [{
-                        "price": str(price),
-                        "sku": sku,
-                        "inventory_quantity": int(row.get('quantity', 0))
-                    }]
+                    "vendor": brand,
+                    "product_type": category,
+                    "tags": [category, brand] + (features.split(', ') if features else []),
+                    "variants": [variant]
                 }
             }
             
@@ -142,15 +191,24 @@ def upload_products_from_excel(excel_file_path):
             if response.status_code in [200, 201]:
                 product_info = response.json()
                 product_id = product_info.get('product', {}).get('id')
+                variant_id = product_info.get('product', {}).get('variants', [{}])[0].get('id')
+                
                 print(f"  SUCCESS: Product uploaded!")
                 print(f"  Shopify ID: {product_id}")
+                
+                # Upload images if available
+                if image_links and image_links.strip():
+                    upload_images(shop_url, access_token, product_id, image_links)
+                
                 upload_results['successful'] += 1
                 upload_results['upload_details'].append({
                     'sku': sku,
                     'status': 'success',
                     'shopify_id': product_id,
+                    'variant_id': variant_id,
                     'title': title,
-                    'price': price
+                    'price': price,
+                    'quantity': quantity
                 })
             else:
                 print(f"  FAILED: {response.status_code} - {response.text}")
@@ -189,13 +247,48 @@ def upload_products_from_excel(excel_file_path):
         print("Please check your API credentials and try again.")
         return False
 
+def upload_images(shop_url, access_token, product_id, image_links):
+    """Upload images for a product"""
+    try:
+        if not image_links or not image_links.strip():
+            return
+        
+        # Split image links
+        image_urls = [url.strip() for url in image_links.split(',') if url.strip()]
+        
+        for i, image_url in enumerate(image_urls):
+            if not image_url:
+                continue
+            
+            image_data = {
+                "image": {
+                    "product_id": product_id,
+                    "src": image_url,
+                    "alt": f"Product image {i+1}"
+                }
+            }
+            
+            upload_url = f"https://{shop_url}/admin/api/2023-10/products/{product_id}/images.json"
+            headers = {
+                'X-Shopify-Access-Token': access_token,
+                'Content-Type': 'application/json'
+            }
+            
+            response = requests.post(upload_url, headers=headers, json=image_data, timeout=30)
+            
+            if response.status_code in [200, 201]:
+                print(f"  Image {i+1} uploaded")
+            else:
+                print(f"  Failed to upload image {i+1}: {response.status_code}")
+        
+    except Exception as e:
+        print(f"  Error uploading images: {str(e)}")
+
 if __name__ == "__main__":
-    # Default to the file with descriptions
-    excel_file = "data/sample_products_with_descriptions.xlsx"
+    # Use CSV files
+    items_file = "data/Items.csv"
+    stock_file = "data/Stock.csv"
+    images_file = "data/Images.csv"
     
-    # Check if file exists, otherwise use basic sample
-    if not os.path.exists(excel_file):
-        excel_file = "data/sample_products.xlsx"
-    
-    print(f"Using Excel file: {excel_file}")
-    upload_products_from_excel(excel_file)
+    # Upload products (limit to 10 for testing, remove limit for all products)
+    upload_products_from_csv(items_file, stock_file, images_file, limit=10)

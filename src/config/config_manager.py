@@ -365,7 +365,7 @@ class ConfigManager:
             env_content = """# Shopify API Configuration
 SHOPIFY_SHOP_URL=your-shop.myshopify.com
 SHOPIFY_API_KEY=your_api_key
-SHOPIFY_API_PASSWORD=your_api_password  
+SHOPIFY_API_PASSWORD=your_api_password                                                                                                                                  
 
 # OpenAI API Configuration
 OPENAI_API_KEY=your_openai_api_key
